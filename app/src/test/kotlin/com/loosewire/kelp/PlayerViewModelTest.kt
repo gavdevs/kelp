@@ -6,6 +6,8 @@ import com.loosewire.kelp.protocol.Page
 import com.loosewire.kelp.protocol.ReleaseSummary
 import com.loosewire.kelp.protocol.ServerActivity
 import com.loosewire.kelp.protocol.TrackSummary
+import com.loosewire.kelp.protocol.KelpError
+import com.loosewire.kelp.protocol.KelpErrorCategory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -18,6 +20,8 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlayerViewModelTest {
@@ -57,6 +61,33 @@ class PlayerViewModelTest {
 
         assertEquals(15_000L, client.lastSeekPositionMs)
     }
+
+    @Test
+    fun failedRefreshKeepsNowPlayingAndSuccessfulRefreshClearsTheError() = runTest(dispatcher) {
+        val playback = PlaybackSnapshot(
+            current = TrackSummary("track", "Track", "Artist", 240_000, false),
+            positionMs = 30_000,
+            isPlaying = true,
+        )
+        val client = PlayerFakeTideClient(playback)
+        val viewModel = PlayerViewModel(client)
+        viewModel.refresh()
+        runCurrent()
+        val failure = KelpError(KelpErrorCategory.Timeout, "Could not reach the player.")
+        client.refreshFailure = failure
+        viewModel.refresh()
+        runCurrent()
+
+        assertEquals(playback, viewModel.state.value.playback)
+        assertEquals(failure, viewModel.state.value.error)
+        assertFalse(viewModel.state.value.loading)
+
+        client.refreshFailure = null
+        viewModel.refresh()
+        runCurrent()
+        assertNull(viewModel.state.value.error)
+        assertEquals(playback.current, viewModel.state.value.playback?.current)
+    }
 }
 
 private class PlayerFakeTideClient(
@@ -65,8 +96,9 @@ private class PlayerFakeTideClient(
     var lastSeekPositionMs: Long? = null
         private set
 
+    var refreshFailure: KelpError? = null
     override suspend fun playback(): KelpClientResult<PlaybackSnapshot> =
-        KelpClientResult.Success(playback)
+        refreshFailure?.let { KelpClientResult.Failure(it) } ?: KelpClientResult.Success(playback)
 
     override suspend fun authSnapshot(): KelpClientResult<AuthSnapshot> = error("Not used")
 

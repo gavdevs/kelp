@@ -55,7 +55,7 @@ internal class TidalStreamResolver(private val auth: TidalStreamingAuth) {
                 .build()
             is ResolvedStream.ClearDash -> {
                 val dir = File(context.cacheDir, "tidal_mpd").apply { mkdirs() }
-                val file = File(dir, "${track.id}_${resolved.audioQuality}.mpd")
+                val file = File.createTempFile("tidal-", ".mpd", dir)
                 file.writeText(resolved.mpdXml)
                 MediaItem.Builder()
                     .setUri(Uri.fromFile(file))

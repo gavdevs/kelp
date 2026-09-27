@@ -18,7 +18,7 @@
 
 ## What is it?
 
-Kelp streams TIDAL the way you actually use it — your saved songs, albums, artists, playlists, daily mixes, and search — squeezed into a calm, text-first interface that fits a minimal phone. Under the hood it runs the Light SDK and plays real, full-length tracks through its own Media3/ExoPlayer pipeline, using the same proven technique as [phono](https://github.com/jonathancaudill/phono) and the other community clients (orpheusdl, streamrip).
+Kelp streams TIDAL through saved songs, albums, artists, playlists, daily mixes, and search in a text-first Light UI. The Light SDK owns the tool UI and navigation; a Kelp-owned Media3 media-session service owns background playback and publishes system transport controls. Full-length stream resolution uses the unofficial first-party-client technique used by [phono](https://github.com/jonathancaudill/phono), not the official TIDAL Player SDK.
 
 **You need a paid TIDAL subscription.** Like phono, kelp never works around that and never will.
 
@@ -37,11 +37,17 @@ Kelp is **sideload-only** today. It can't go through Light's hosted tool builder
 ## Features
 
 - Saved songs, albums, artists, playlists (your whole collection, paginated)
-- Home mixes (daily / discovery / new-release) + recently played
-- Full catalog search with per-section paging
+- Home mixes (daily / discovery / new-release) with artist subtext
+- Full catalog search preserving TIDAL relevance order, with complete results and per-section paging
 - Queue with shuffle, repeat, seek, and "keep playing similar songs" continuous playback
+- Foreground-service playback outside Kelp, with track metadata and system play/pause/previous/next controls
+- Full-width navigation and transport touch targets, with Now Playing accessible from the top-left waveform
 - LOSSLESS streaming by default (falls back to lower quality if needed)
 - Follows LightOS theming and hardware-button navigation
+
+Loading audio is distinct from playing; preparation failures remain visible in Now Playing. Returning from playback keeps loaded browse results. Settings exposes continuous playback and sign-out, with read-only information about the actual streaming policy. Nonfunctional quality, normalization, explicit-filter, and offline controls are not presented as working features.
+
+Background playback is not persistent playback recovery: force-stop, reboot, or process loss clears the in-memory queue. Leaving Kelp does not stop an active session; signing out does.
 
 ## Build it yourself
 
@@ -59,6 +65,8 @@ scripts/build-release.sh
 ```
 
 You'll also want your own TIDAL developer credentials in `local.properties` (see `local.properties.example`) if you're hacking rather than installing releases.
+
+Local builds default to one worker, two JVM-visible processors, a 1.5 GiB heap, and in-process Kotlin compilation, following Lightious's low-resource build setup. The playback migration was built against adjacent SDK `52fbc5a8aedbd3c4c88037580709e53540086229`; existing local SDK changes were preserved.
 
 CI runs tests + assemble on every push; pushing a matching `v*` tag publishes a signed release automatically.
 

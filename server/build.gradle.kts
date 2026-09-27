@@ -101,12 +101,12 @@ dependencies {
         exclude(group = "com.google.crypto.tink", module = "tink-android")
     }
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    // Playback runs through Kelp's own first-party playbackinfo resolution +
-    // Media3 ExoPlayer (phono's recipe): the official TIDAL Player module only
-    // plays 30-second previews for unapproved developer apps.
+    // One pinned Media3 runtime hosts Kelp's foreground media session and lazy
+    // TIDAL stream sources. The official TIDAL Player module is not used.
     listOf(
         "media3-common",
         "media3-exoplayer",
+        "media3-session",
         "media3-exoplayer-dash",
     ).forEach { module ->
         implementation("androidx.media3:$module") {

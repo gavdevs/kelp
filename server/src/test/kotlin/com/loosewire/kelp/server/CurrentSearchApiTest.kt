@@ -1,39 +1,23 @@
 package com.loosewire.kelp.server
 
+import com.loosewire.kelp.protocol.KelpErrorCategory
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
-import retrofit2.http.GET
-import retrofit2.http.Query
+import kotlin.test.assertFailsWith
 
 class CurrentSearchApiTest {
     @Test
-    fun searchUsesCurrentQueryEndpointInsteadOfLegacyPathId() {
-        val method = CurrentSearchApi::class.java.declaredMethods.single {
-            it.name == "searchResultsGet"
-        }
+    fun continuationPreservesOpaqueSearchIdentityAndCursor() {
+        val original = SearchContinuation("opaque / + % ? \" search", "cursor+/= %25 & unicode 音楽")
 
-        assertEquals("searchResults", assertNotNull(method.getAnnotation(GET::class.java)).value)
-        assertEquals(
-            listOf("filter[query]", "include", "page[cursor]"),
-            method.parameterAnnotations.dropLast(1).map { annotations ->
-                annotations.filterIsInstance<Query>().single().value
-            },
-        )
+        assertEquals(original, SearchContinuation.decode(original.encode()))
     }
 
     @Test
-    fun tracksUseRawCurrentEndpointForTolerantDecoding() {
-        val method = CurrentTracksApi::class.java.declaredMethods.single {
-            it.name == "tracksGet"
+    fun malformedContinuationIsAProtocolError() {
+        for (value in listOf("not-json", "{}", "[]", "[\"id\"]", "[\"id\",null]", "[1,2]", "[\"id\",\"\"]")) {
+            val error = assertFailsWith<TidalCatalogException> { SearchContinuation.decode(value) }
+            assertEquals(KelpErrorCategory.Protocol, error.category)
         }
-
-        assertEquals("tracks", assertNotNull(method.getAnnotation(GET::class.java)).value)
-        assertEquals(
-            listOf("include", "filter[id]"),
-            method.parameterAnnotations.dropLast(1).map { annotations ->
-                annotations.filterIsInstance<Query>().single().value
-            },
-        )
     }
 }

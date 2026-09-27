@@ -87,9 +87,8 @@ dependencies {
     }
     implementation(libs.kotlinx.coroutines)
 
-    // Kelp's own ExoPlayer-backed TIDAL playback pins Media3 1.5.0; strict,
-    // allow-listed dependencies keep the merged APK on one Media3 runtime
-    // even though Light SDK depends on a newer version.
+    // Keep the SDK client and Kelp's foreground media session on one tested
+    // Media3 runtime; TIDAL Auth/API do not own the player.
     listOf(
         "media3-common",
         "media3-exoplayer",
@@ -100,7 +99,7 @@ dependencies {
     ).forEach { module ->
         implementation("androidx.media3:$module") {
             version { strictly("1.5.0") }
-            because("TIDAL Player 0.0.71 requires Media3 1.5.0 binary APIs")
+            because("Keep the SDK client and Kelp playback service on the same Media3 runtime")
         }
     }
 

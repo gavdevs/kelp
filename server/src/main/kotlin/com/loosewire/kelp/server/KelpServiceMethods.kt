@@ -32,8 +32,6 @@ object KelpServiceMethods {
     private val catalogLock = Any()
     @Volatile
     private var catalog: Catalog? = null
-    @Volatile
-    private var playerController: KelpPlayerController? = null
 
     fun initialize(context: Context) {
         applicationContext = context.applicationContext
@@ -65,10 +63,11 @@ object KelpServiceMethods {
             )
 
             KelpRemoteMethod.Logout.id -> {
-                runBlocking { KelpRuntime.logout() }
+                runBlocking {
+                    KelpPlaybackService.stop()
+                    KelpRuntime.logout()
+                }
                 synchronized(catalogLock) {
-                    playerController?.release()
-                    playerController = null
                     catalog = null
                 }
                 LightResult.Success(
@@ -156,11 +155,9 @@ object KelpServiceMethods {
                 handlePlaylistDetail(request)
             }
 
-            KelpRemoteMethod.GetPlayback.id -> withPlayer { controller ->
-                LightResult.Success(
-                    KelpRemoteMethod.GetPlayback.encodeResponse(controller.snapshot()),
-                )
-            }
+            KelpRemoteMethod.GetPlayback.id -> LightResult.Success(
+                KelpRemoteMethod.GetPlayback.encodeResponse(KelpPlaybackService.snapshot()),
+            )
 
             KelpRemoteMethod.StartPlayback.id -> {
                 val request = KelpRemoteMethod.StartPlayback.decodeRequest(payload ?: "{}")
@@ -243,23 +240,19 @@ object KelpServiceMethods {
 
     private fun handlePlayerCommand(request: PlayerCommandRequest): LightResult<String> =
         withPlayer { controller ->
-            val snapshot = runBlocking {
-                withTimeout(collectionTimeoutMillis) {
-                    controller.control(request.command, request.positionMs)
-                }
-            }
+            val snapshot = controller.control(request.command, request.positionMs)
             LightResult.Success(KelpRemoteMethod.ControlPlayback.encodeResponse(snapshot))
         }
 
     private fun withPlayer(
         block: (KelpPlayerController) -> LightResult<String>,
     ): LightResult<String> {
-        val controller = currentPlayer() ?: return failure(
-            KelpErrorCategory.Unavailable,
-            "The TIDAL player is not available yet.",
-        )
         return try {
-            block(controller)
+            runBlocking {
+                withTimeout(collectionTimeoutMillis) {
+                    KelpPlaybackService.withController(applicationContext, block)
+                }
+            }
         } catch (_: TimeoutCancellationException) {
             failure(KelpErrorCategory.Timeout, "The player took too long to respond. Please retry.")
         } catch (error: TidalCatalogException) {
@@ -320,16 +313,8 @@ object KelpServiceMethods {
         }
     }
 
-    private fun currentPlayer(): KelpPlayerController? {
-        playerController?.let { return it }
-        if (!::applicationContext.isInitialized) return null
-        val streamingAuth = KelpRuntime.streamingAuth() ?: return null
-        return synchronized(catalogLock) {
-            playerController ?: KelpPlayerController(applicationContext, streamingAuth) { track ->
-                currentCatalog()?.similarTracks(track).orEmpty()
-            }.also { playerController = it }
-        }
-    }
+    internal suspend fun similarTracks(track: com.loosewire.kelp.protocol.TrackSummary) =
+        currentCatalog()?.similarTracks(track).orEmpty()
 
     private fun failure(
         category: KelpErrorCategory,

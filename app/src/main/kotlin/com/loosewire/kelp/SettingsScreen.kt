@@ -12,6 +12,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewModelScope
+import com.loosewire.kelp.protocol.KelpError
 import com.thelightphone.sdk.LightScreen
 import com.thelightphone.sdk.LightViewModel
 import com.thelightphone.sdk.SealedLightActivity
@@ -45,43 +46,24 @@ class SettingsViewModel(
 
     private val _signedOut = MutableStateFlow(false)
     val signedOut = _signedOut.asStateFlow()
+    private val _signingOut = MutableStateFlow(false)
+    val signingOut = _signingOut.asStateFlow()
+    private val _signOutError = MutableStateFlow<KelpError?>(null)
+    val signOutError = _signOutError.asStateFlow()
 
     fun signOut() {
+        if (_signedOut.value || _signingOut.value) return
+        _signingOut.value = true
+        _signOutError.value = null
         viewModelScope.launch {
-            when (val result = kelpClient.logout()) {
-                is KelpClientResult.Success -> _signedOut.value = true
-                is KelpClientResult.Failure -> Unit
+            try {
+                when (val result = kelpClient.logout()) {
+                    is KelpClientResult.Success -> _signedOut.value = true
+                    is KelpClientResult.Failure -> _signOutError.value = result.error
+                }
+            } finally {
+                _signingOut.value = false
             }
-        }
-    }
-
-    fun cycleWifiQuality() {
-        viewModelScope.launch {
-            preferences.setWifiQuality(playback.value.wifiQuality.next())
-        }
-    }
-
-    fun cycleMobileQuality() {
-        viewModelScope.launch {
-            preferences.setMobileQuality(playback.value.mobileQuality.next())
-        }
-    }
-
-    fun cycleDownloadQuality() {
-        viewModelScope.launch {
-            preferences.setDownloadQuality(playback.value.downloadQuality.next())
-        }
-    }
-
-    fun toggleNormalizeVolume() {
-        viewModelScope.launch {
-            preferences.setNormalizeVolume(!playback.value.normalizeVolume)
-        }
-    }
-
-    fun toggleExplicitContent() {
-        viewModelScope.launch {
-            preferences.setAllowExplicitContent(!playback.value.allowExplicitContent)
         }
     }
 
@@ -107,6 +89,8 @@ class SettingsScreen(sealedActivity: SealedLightActivity) :
         val colors by LightThemeController.colors.collectAsState()
         val playback by viewModel.playback.collectAsState()
         val signedOut by viewModel.signedOut.collectAsState()
+        val signingOut by viewModel.signingOut.collectAsState()
+        val signOutError by viewModel.signOutError.collectAsState()
 
         LightTheme(colors = colors) {
             Column(
@@ -128,30 +112,9 @@ class SettingsScreen(sealedActivity: SealedLightActivity) :
                         .padding(start = 1f.gridUnitsAsDp()),
                 ) {
                     SectionLabel("PLAYBACK")
-                    SettingRow(
-                        label = "Wi-Fi quality",
-                        value = "${playback.wifiQuality.label} · ${playback.wifiQuality.detail}",
-                        onClick = viewModel::cycleWifiQuality,
-                    )
-                    SettingRow(
-                        label = "Mobile quality",
-                        value = "${playback.mobileQuality.label} · ${playback.mobileQuality.detail}",
-                        onClick = viewModel::cycleMobileQuality,
-                    )
-                    SettingRow(
-                        label = "Download quality",
-                        value = "${playback.downloadQuality.label} · ${playback.downloadQuality.detail}",
-                        onClick = viewModel::cycleDownloadQuality,
-                    )
-                    SettingRow(
-                        label = "Normalize volume",
-                        value = playback.normalizeVolume.onOffLabel(),
-                        onClick = viewModel::toggleNormalizeVolume,
-                    )
-                    SettingRow(
-                        label = "Explicit content",
-                        value = if (playback.allowExplicitContent) "Allowed" else "Hidden",
-                        onClick = viewModel::toggleExplicitContent,
+                    ReadOnlySettingRow(
+                        label = "Streaming quality",
+                        value = "Lossless preferred · lower quality when unavailable",
                     )
 
                     Spacer(modifier = Modifier.height(1f.gridUnitsAsDp()))
@@ -167,7 +130,7 @@ class SettingsScreen(sealedActivity: SealedLightActivity) :
                     )
                     ReadOnlySettingRow(
                         label = "Background playback",
-                        value = "Continue when Kelp closes",
+                        value = "Continue outside Kelp · controls on LightOS Home",
                     )
                     ReadOnlySettingRow(
                         label = "Theme",
@@ -178,14 +141,23 @@ class SettingsScreen(sealedActivity: SealedLightActivity) :
                     SectionLabel("ACCOUNT")
                     if (signedOut) {
                         ReadOnlySettingRow(label = "TIDAL", value = "Signed out")
+                    } else if (signingOut) {
+                        ReadOnlySettingRow(label = "TIDAL", value = "Signing out…")
                     } else {
                         SettingRow(
                             label = "TIDAL",
-                            value = "Connected · tap to sign out",
+                            value = if (signOutError == null) "Tap to sign out" else "Sign out failed · tap to retry",
                             onClick = viewModel::signOut,
                         )
+                        signOutError?.let { error ->
+                            LightText(
+                                text = error.message,
+                                variant = LightTextVariant.Fine,
+                                modifier = Modifier.padding(end = 1f.gridUnitsAsDp()),
+                            )
+                        }
                     }
-                    ReadOnlySettingRow(label = "Kelp", value = "Version 0.2.0")
+                    ReadOnlySettingRow(label = "Kelp", value = "Experimental · online playback")
                 }
             }
         }
@@ -245,5 +217,4 @@ class SettingsScreen(sealedActivity: SealedLightActivity) :
         }
     }
 
-    private fun Boolean.onOffLabel(): String = if (this) "On" else "Off"
 }

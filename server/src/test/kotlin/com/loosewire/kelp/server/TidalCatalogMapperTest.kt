@@ -5,6 +5,7 @@ import com.loosewire.kelp.protocol.SearchSection
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertNotNull
 
 class TidalCatalogMapperTest {
     @Test
@@ -78,7 +79,10 @@ class TidalCatalogMapperTest {
     fun searchMapsTrackResponsesWithoutKeyOrKeyScale() {
         val body = """
             {
-              "data": [],
+              "data": [{
+                "id": "search-1", "type": "searchResults",
+                "relationships": {"tracks": {"data": [{"id": "track-1", "type": "tracks"}]}}
+              }],
               "included": [{
                 "id": "track-1",
                 "type": "tracks",
@@ -103,6 +107,7 @@ class TidalCatalogMapperTest {
                 "type": "searchResults",
                 "relationships": {
                   "artists": {
+                    "data": [{"id": "artist-1", "type": "artists"}],
                     "links": {
                       "next": "https://openapi.tidal.com/v2/searchResults/search-1/relationships/artists?page%5Bcursor%5D=next-artists"
                     }
@@ -120,6 +125,133 @@ class TidalCatalogMapperTest {
         val results = TidalCatalogMapper.mapSearchJson(body, SearchSection.Artists)
 
         assertEquals(listOf("An Artist"), results.artists.map { it.name })
-        assertEquals("next-artists", results.nextCursor)
+        assertEquals(
+            SearchContinuation("search-1", "next-artists"),
+            SearchContinuation.decode(assertNotNull(results.nextCursor)),
+        )
+    }
+
+    @Test
+    fun artistHitsKeepRelationshipRankingAndExcludeUnrelatedIncludedArtists() {
+        val body = """
+            {
+              "data": [{
+                "id": "opaque-search", "type": "searchResults",
+                "relationships": {"artists": {"data": [
+                  {"id": "exact", "type": "artists"},
+                  {"id": "other", "type": "artists"}
+                ]}}
+              }],
+              "included": [
+                {"id": "other", "type": "artists", "attributes": {"name": "Alphabetically First"}},
+                {"id": "unrelated", "type": "artists", "attributes": {"name": "Enrichment Only"}},
+                {"id": "exact", "type": "artists", "attributes": {"name": "Trevor Hall"}}
+              ]
+            }
+        """.trimIndent()
+
+        assertEquals(
+            listOf("exact", "other"),
+            TidalCatalogMapper.mapSearchJson(body, SearchSection.Artists).artists.map { it.id },
+        )
+    }
+
+    @Test
+    fun songsRetainAllRankedHitsBeyondOldPreviewLimitAndUseRelatedMetadata() {
+        val ids = (1..12).map { "track-$it" }
+        val linkage = ids.joinToString(",") { """{"id":"$it","type":"tracks"}""" }
+        val tracks = ids.reversed().joinToString(",") {
+            """
+                {"id":"$it","type":"tracks","attributes":{"title":"Song $it"},
+                 "relationships":{"artists":{"data":[{"id":"artist","type":"artists"}]}}}
+            """.trimIndent()
+        }
+        val body = """
+            {
+              "data": [{
+                "id": "search-songs", "type": "searchResults",
+                "relationships": {"tracks": {"data": [$linkage]}}
+              }],
+              "included": [
+                $tracks,
+                {"id":"artist","type":"artists","attributes":{"name":"Song Artist"}},
+                {"id":"not-a-hit","type":"tracks","attributes":{"title":"Unrelated Song"}}
+              ]
+            }
+        """.trimIndent()
+
+        val results = TidalCatalogMapper.mapSearchJson(body, SearchSection.Songs)
+
+        assertEquals(ids, results.tracks.map { it.id })
+        assertEquals(List(12) { "Song Artist" }, results.tracks.map { it.artistName })
+        assertEquals(emptyList(), results.artists)
+    }
+
+    @Test
+    fun relationshipPageUsesPrimaryLinkageAndPreservesSearchIdentityAcrossPages() {
+        val body = """
+            {
+              "data": [
+                {"id":"second","type":"tracks"},
+                {"id":"first","type":"tracks"}
+              ],
+              "links":{"next":{"href":"https://openapi.tidal.com/v2/searchResults/opaque/relationships/tracks?page%5Bcursor%5D=a%2Bb%2F%3D%2525"}},
+              "included": [
+                {"id":"first","type":"tracks","attributes":{"title":"First"}},
+                {"id":"extra","type":"tracks","attributes":{"title":"Not a hit"}},
+                {"id":"second","type":"tracks","attributes":{"title":"Second"}}
+              ]
+            }
+        """.trimIndent()
+
+        val results = TidalCatalogMapper.mapSearchJson(body, SearchSection.Songs, "opaque / search")
+
+        assertEquals(listOf("second", "first"), results.tracks.map { it.id })
+        assertEquals(
+            SearchContinuation("opaque / search", "a+b/=%25"),
+            SearchContinuation.decode(assertNotNull(results.nextCursor)),
+        )
+    }
+
+    @Test
+    fun emptyRelationshipDoesNotPromoteIncludedResourcesToHits() {
+        val body = """
+            {
+              "data": [{
+                "id":"search-empty","type":"searchResults",
+                "relationships":{"artists":{"data":[]}}
+              }],
+              "included":[
+                {"id":"artist","type":"artists","attributes":{"name":"Not a hit"}}
+              ]
+            }
+        """.trimIndent()
+
+        val results = TidalCatalogMapper.mapSearchJson(body, SearchSection.Artists)
+
+        assertEquals(emptyList(), results.artists)
+        assertNull(results.nextCursor)
+    }
+
+    @Test
+    fun trackEnrichmentRetainsSearchOrderRatherThanResponseOrder() {
+        val body = """
+            {
+              "data": [
+                {"id":"other","type":"tracks","attributes":{"title":"Other Song"}},
+                {"id":"exact","type":"tracks","attributes":{"title":"Everything is Music"},
+                 "relationships":{"artists":{"data":[{"id":"artist","type":"artists"}]}}}
+              ],
+              "included":[
+                {"id":"artist","type":"artists","attributes":{"name":"Tubby Love"}}
+              ]
+            }
+        """.trimIndent()
+
+        val tracks = TidalCatalogMapper.mapTrackResourcesJson(listOf("exact", "other"), body)
+
+        assertEquals(listOf("exact", "other"), tracks.map { it.id })
+        assertEquals("Everything is Music", tracks.first().title)
+        assertEquals("Tubby Love", tracks.first().artistName)
     }
 }

@@ -1,7 +1,6 @@
 package com.loosewire.kelp
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,7 +17,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.style.TextAlign
 import androidx.lifecycle.viewModelScope
 import com.loosewire.kelp.protocol.ArtistSummary
@@ -50,6 +48,8 @@ import com.thelightphone.sdk.ui.LightThemeTokens
 import com.thelightphone.sdk.ui.gridUnitsAsDp
 import com.thelightphone.sdk.ui.lightClickable
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -191,11 +191,11 @@ class HomeViewModel(
         catalogJob = null
         val current = _state.value
         _state.value = current.copy(
-            artists = current.artists.copy(loading = false),
-            albums = current.albums.copy(loading = false),
-            songs = current.songs.copy(loading = false),
-            playlists = current.playlists.copy(loading = false),
-            home = current.home.copy(loading = false),
+            artists = current.artists.copy(loading = false, loadingMore = false),
+            albums = current.albums.copy(loading = false, loadingMore = false),
+            songs = current.songs.copy(loading = false, loadingMore = false),
+            playlists = current.playlists.copy(loading = false, loadingMore = false),
+            home = current.home.copy(loading = false, loadingMore = false),
         )
     }
 
@@ -206,7 +206,9 @@ class HomeViewModel(
             artists = _state.value.artists.copy(loading = true, error = null),
         )
         catalogJob = viewModelScope.launch {
-            when (val result = kelpClient.artists()) {
+            val result = kelpClient.artists()
+            currentCoroutineContext().ensureActive()
+            when (result) {
                 is KelpClientResult.Success -> _state.value = _state.value.copy(
                     artists = CatalogState(
                         items = result.data.items.distinctBy { it.id },
@@ -228,7 +230,9 @@ class HomeViewModel(
             albums = _state.value.albums.copy(loading = true, error = null),
         )
         catalogJob = viewModelScope.launch {
-            when (val result = kelpClient.collection()) {
+            val result = kelpClient.collection()
+            currentCoroutineContext().ensureActive()
+            when (result) {
                 is KelpClientResult.Success -> _state.value = _state.value.copy(
                     albums = CatalogState(
                         items = result.data.items.distinctBy { it.id },
@@ -250,7 +254,9 @@ class HomeViewModel(
             songs = _state.value.songs.copy(loading = true, error = null),
         )
         catalogJob = viewModelScope.launch {
-            when (val result = kelpClient.tracks()) {
+            val result = kelpClient.tracks()
+            currentCoroutineContext().ensureActive()
+            when (result) {
                 is KelpClientResult.Success -> _state.value = _state.value.copy(
                     songs = CatalogState(
                         items = result.data.items.distinctBy { it.id },
@@ -270,7 +276,9 @@ class HomeViewModel(
         catalogJob?.cancel()
         _state.value = _state.value.copy(home = _state.value.home.copy(loading = true, error = null))
         catalogJob = viewModelScope.launch {
-            when (val result = kelpClient.home()) {
+            val result = kelpClient.home()
+            currentCoroutineContext().ensureActive()
+            when (result) {
                 is KelpClientResult.Success -> _state.value = _state.value.copy(
                     home = CatalogState(items = listOf(result.data), loaded = true),
                     playlists = CatalogState(items = result.data.playlists, loaded = true),
@@ -289,7 +297,9 @@ class HomeViewModel(
             playlists = _state.value.playlists.copy(loading = true, error = null),
         )
         catalogJob = viewModelScope.launch {
-            when (val result = kelpClient.home()) {
+            val result = kelpClient.home()
+            currentCoroutineContext().ensureActive()
+            when (result) {
                 is KelpClientResult.Success -> _state.value = _state.value.copy(
                     playlists = CatalogState(items = result.data.playlists, loaded = true),
                 )
@@ -303,10 +313,12 @@ class HomeViewModel(
     private fun loadMoreArtists() {
         val current = _state.value.artists
         val cursor = current.nextCursor ?: return
-        if (current.loadingMore) return
+        if (current.loading || current.loadingMore) return
         _state.value = _state.value.copy(artists = current.copy(loadingMore = true, loadMoreError = null))
         catalogJob = viewModelScope.launch {
-            when (val result = kelpClient.artists(cursor)) {
+            val result = kelpClient.artists(cursor)
+            currentCoroutineContext().ensureActive()
+            when (result) {
                 is KelpClientResult.Success -> _state.value = _state.value.copy(
                     artists = current.copy(
                         items = (current.items + result.data.items).distinctBy { it.id },
@@ -324,10 +336,12 @@ class HomeViewModel(
     private fun loadMoreAlbums() {
         val current = _state.value.albums
         val cursor = current.nextCursor ?: return
-        if (current.loadingMore) return
+        if (current.loading || current.loadingMore) return
         _state.value = _state.value.copy(albums = current.copy(loadingMore = true, loadMoreError = null))
         catalogJob = viewModelScope.launch {
-            when (val result = kelpClient.collection(cursor)) {
+            val result = kelpClient.collection(cursor)
+            currentCoroutineContext().ensureActive()
+            when (result) {
                 is KelpClientResult.Success -> _state.value = _state.value.copy(
                     albums = current.copy(
                         items = (current.items + result.data.items).distinctBy { it.id },
@@ -345,10 +359,12 @@ class HomeViewModel(
     private fun loadMoreSongs() {
         val current = _state.value.songs
         val cursor = current.nextCursor ?: return
-        if (current.loadingMore) return
+        if (current.loading || current.loadingMore) return
         _state.value = _state.value.copy(songs = current.copy(loadingMore = true, loadMoreError = null))
         catalogJob = viewModelScope.launch {
-            when (val result = kelpClient.tracks(cursor)) {
+            val result = kelpClient.tracks(cursor)
+            currentCoroutineContext().ensureActive()
+            when (result) {
                 is KelpClientResult.Success -> _state.value = _state.value.copy(
                     songs = current.copy(
                         items = (current.items + result.data.items).distinctBy { it.id },
@@ -460,38 +476,19 @@ class HomeScreen(sealedActivity: SealedLightActivity) : LightScreen<Unit, HomeVi
             KelpNavigationItem(KelpTab.Songs, LightIcons.CIRCLE),
         )
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 1f.gridUnitsAsDp())
-                .height(4f.gridUnitsAsDp())
-                .padding(horizontal = 2f.gridUnitsAsDp()),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        KelpActionBar {
             tabs.forEach { item ->
                 val isSelected = item.tab == selected
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .widthIn(min = 3.5f.gridUnitsAsDp())
-                        .let { modifier ->
-                            if (isSelected) modifier else modifier.lightClickable {
-                                viewModel.selectTab(item.tab)
-                            }
-                        },
-                    contentAlignment = Alignment.Center,
+                KelpActionIcon(
+                    icon = item.icon,
+                    contentDescription = if (isSelected) {
+                        "${item.tab.label}, selected"
+                    } else {
+                        item.tab.label
+                    },
+                    alpha = if (isSelected) 1f else InactiveIconAlpha,
                 ) {
-                    LightIcon(
-                        icon = item.icon,
-                        size = 2f,
-                        contentDescription = if (isSelected) {
-                            "${item.tab.label}, selected"
-                        } else {
-                            item.tab.label
-                        },
-                        modifier = Modifier.alpha(if (isSelected) 1f else InactiveIconAlpha),
-                    )
+                    if (!isSelected) viewModel.selectTab(item.tab)
                 }
             }
         }
