@@ -1,8 +1,8 @@
 [tool]
 id = "com.loosewire.kelp"
 label = "Kelp"
-versionCode = 7
-versionName = "0.2.5"
+versionCode = 8
+versionName = "0.2.6"
 permissions = ["android.permission.INTERNET"]
 capabilities = ["detached-audio"]
 serverPackage = "com.loosewire.kelp"
