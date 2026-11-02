@@ -1,11 +1,5 @@
 package com.loosewire.kelp.server
 
-import android.content.Context
-import android.net.Uri
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes
-import com.loosewire.kelp.protocol.TrackSummary
-import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.serialization.Serializable
@@ -21,13 +15,12 @@ import okhttp3.Request
  *
  * Responses carry a base64 manifest: either BTS (progressive signed URLs)
  * or clear DASH. Clear DASH MPDs use `group="main"` on AdaptationSets, which
- * crashes Media3's DashManifestParser (spec wants unsigned int) — the
- * attribute is stripped before the MPD is handed to ExoPlayer, the same
- * treatment high-kelp and mopidy-tidal give it.
+ * violates the DASH schema (the attribute must be an unsigned integer).
+ * Strip it before handing the MPD to the SDK, as high-kelp and mopidy-tidal do.
  *
  * All methods block; call from a background thread.
  */
-internal class TidalStreamResolver(private val auth: TidalStreamingAuth) {
+internal class TidalStreamResolver(private val auth: () -> TidalStreamingAuth) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -48,27 +41,12 @@ internal class TidalStreamResolver(private val auth: TidalStreamingAuth) {
         ) : ResolvedStream
     }
 
-    fun resolveMediaItem(context: Context, track: TrackSummary): MediaItem =
-        when (val resolved = resolve(track.id)) {
-            is ResolvedStream.Progressive -> MediaItem.Builder()
-                .setUri(resolved.url)
-                .build()
-            is ResolvedStream.ClearDash -> {
-                val dir = File(context.cacheDir, "tidal_mpd").apply { mkdirs() }
-                val file = File.createTempFile("tidal-", ".mpd", dir)
-                file.writeText(resolved.mpdXml)
-                MediaItem.Builder()
-                    .setUri(Uri.fromFile(file))
-                    .setMimeType(MimeTypes.APPLICATION_MPD)
-                    .build()
-            }
-        }
-
     fun resolve(trackId: String): ResolvedStream {
+        val auth = auth()
         var lastError: Exception? = null
         for (quality in QUALITY_FALLBACK_LADDER) {
             try {
-                val info = playbackInfo(trackId, quality)
+                val info = playbackInfo(trackId, quality, auth)
                 val mime = info.manifestMimeType
                 val decoded = String(java.util.Base64.getDecoder().decode(info.manifest.trim()))
                 when {
@@ -102,7 +80,7 @@ internal class TidalStreamResolver(private val auth: TidalStreamingAuth) {
         throw lastError ?: IOException("TIDAL stream resolution failed")
     }
 
-    private fun playbackInfo(trackId: String, quality: String): PlaybackInfo {
+    private fun playbackInfo(trackId: String, quality: String, auth: TidalStreamingAuth): PlaybackInfo {
         var refreshRetried = false
         while (true) {
             val url = "https://api.tidal.com/v1/tracks/$trackId/playbackinfopostpaywall"
@@ -139,8 +117,8 @@ internal class TidalStreamResolver(private val auth: TidalStreamingAuth) {
     }
 
     /**
-     * Strip non-numeric `group="main"` AdaptationSet attributes Media3 cannot
-     * parse, plus inert ContentProtection stubs on clear streams.
+     * Strip non-numeric `group="main"` AdaptationSet attributes forbidden by
+     * the DASH schema, plus inert ContentProtection stubs on clear streams.
      */
     private fun sanitizeMpd(mpdXml: String): String {
         var s = mpdXml

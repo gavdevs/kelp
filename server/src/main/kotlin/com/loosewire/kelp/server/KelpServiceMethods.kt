@@ -30,12 +30,18 @@ object KelpServiceMethods {
     private var loginActivityComponent = "com.loosewire.kelp/.server.LoginActivity"
     private lateinit var applicationContext: Context
     private val catalogLock = Any()
+    private val playerLock = Any()
     @Volatile
     private var catalog: Catalog? = null
+    @Volatile
+    private var playerController: KelpPlayerController? = null
 
     fun initialize(context: Context) {
         applicationContext = context.applicationContext
         RecentTracksStore.initialize(applicationContext)
+        KelpPlayerController.initialize(applicationContext) { track ->
+            currentCatalog()?.similarTracks(track).orEmpty()
+        }
         loginActivityComponent = ComponentName(
             context.applicationContext,
             LoginActivity::class.java,
@@ -63,12 +69,12 @@ object KelpServiceMethods {
             )
 
             KelpRemoteMethod.Logout.id -> {
-                runBlocking {
-                    KelpPlaybackService.stop()
-                    KelpRuntime.logout()
-                }
-                synchronized(catalogLock) {
-                    catalog = null
+                KelpPlayerController.requireBinderThread()
+                synchronized(playerLock) {
+                    playerController?.release()
+                    runBlocking { KelpRuntime.logout() }
+                    playerController = null
+                    synchronized(catalogLock) { catalog = null }
                 }
                 LightResult.Success(
                     KelpRemoteMethod.Logout.encodeResponse(KelpRuntime.currentAuthSnapshot()),
@@ -155,9 +161,11 @@ object KelpServiceMethods {
                 handlePlaylistDetail(request)
             }
 
-            KelpRemoteMethod.GetPlayback.id -> LightResult.Success(
-                KelpRemoteMethod.GetPlayback.encodeResponse(KelpPlaybackService.snapshot()),
-            )
+            KelpRemoteMethod.GetPlayback.id -> withPlayer { controller ->
+                LightResult.Success(
+                    KelpRemoteMethod.GetPlayback.encodeResponse(controller.snapshot()),
+                )
+            }
 
             KelpRemoteMethod.StartPlayback.id -> {
                 val request = KelpRemoteMethod.StartPlayback.decodeRequest(payload ?: "{}")
@@ -226,40 +234,48 @@ object KelpServiceMethods {
 
     private fun handleStartPlayback(request: StartPlaybackRequest): LightResult<String> =
         withPlayer { controller ->
-            runCatching { controller.start(request) }.fold(
-                onSuccess = { LightResult.Success(KelpRemoteMethod.StartPlayback.encodeResponse(it)) },
-                onFailure = {
-                    failure(
-                        KelpErrorCategory.Protocol,
-                        "Choose a valid song to start playback.",
-                        LightResult.ErrorCode.InvalidParameters,
-                    )
-                },
-            )
+            if (request.tracks.isEmpty() || request.startIndex !in request.tracks.indices) {
+                failure(
+                    KelpErrorCategory.Protocol,
+                    "Choose a valid song to start playback.",
+                    LightResult.ErrorCode.InvalidParameters,
+                )
+            } else {
+                LightResult.Success(
+                    KelpRemoteMethod.StartPlayback.encodeResponse(controller.start(request)),
+                )
+            }
         }
 
     private fun handlePlayerCommand(request: PlayerCommandRequest): LightResult<String> =
         withPlayer { controller ->
-            val snapshot = controller.control(request.command, request.positionMs)
+            val snapshot = runBlocking {
+                withTimeout(collectionTimeoutMillis) {
+                    controller.control(request.command, request.positionMs)
+                }
+            }
             LightResult.Success(KelpRemoteMethod.ControlPlayback.encodeResponse(snapshot))
         }
 
     private fun withPlayer(
         block: (KelpPlayerController) -> LightResult<String>,
     ): LightResult<String> {
-        return try {
-            runBlocking {
-                withTimeout(collectionTimeoutMillis) {
-                    KelpPlaybackService.withController(applicationContext, block)
-                }
+        KelpPlayerController.requireBinderThread()
+        return synchronized(playerLock) {
+            val controller = currentPlayer() ?: return failure(
+                KelpErrorCategory.Unavailable,
+                "The TIDAL player is not available yet.",
+            )
+            try {
+                block(controller)
+            } catch (_: TimeoutCancellationException) {
+                failure(KelpErrorCategory.Timeout, "The player took too long to respond. Please retry.")
+            } catch (error: TidalCatalogException) {
+                failure(error.category, error.safeMessage)
+            } catch (error: Exception) {
+                logger.warning("TIDAL player request failed: ${error.javaClass.simpleName}")
+                failure(KelpErrorCategory.Unavailable, "The TIDAL player could not complete that action.")
             }
-        } catch (_: TimeoutCancellationException) {
-            failure(KelpErrorCategory.Timeout, "The player took too long to respond. Please retry.")
-        } catch (error: TidalCatalogException) {
-            failure(error.category, error.safeMessage)
-        } catch (error: Exception) {
-            logger.warning("TIDAL player request failed: ${error.javaClass.simpleName}")
-            failure(KelpErrorCategory.Unavailable, "The TIDAL player could not complete that action.")
         }
     }
 
@@ -313,8 +329,11 @@ object KelpServiceMethods {
         }
     }
 
-    internal suspend fun similarTracks(track: com.loosewire.kelp.protocol.TrackSummary) =
-        currentCatalog()?.similarTracks(track).orEmpty()
+    private fun currentPlayer(): KelpPlayerController? {
+        playerController?.let { return it }
+        if (!::applicationContext.isInitialized) return null
+        return KelpPlayerController(applicationContext).also { playerController = it }
+    }
 
     private fun failure(
         category: KelpErrorCategory,

@@ -9,15 +9,6 @@
         tools:node="remove" />
 
     <application>
-        <service
-            android:name=".KelpPlaybackService"
-            android:foregroundServiceType="mediaPlayback"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="androidx.media3.session.MediaSessionService" />
-            </intent-filter>
-        </service>
-
         <!-- Bootstrap ContentProvider (non-exported) -->
         <provider
             android:name=".KelpBootstrapProvider"

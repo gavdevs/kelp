@@ -56,7 +56,7 @@ Following Lightious's lifecycle lessons, browse screens retain loaded results on
 
 1. **Shell:** authentication, five-icon catalog navigation, search entry, persistent local playback settings, and Light-native styling.
 2. **Catalog:** album details and tracks, playlists, artists, saved tracks, and live search results.
-3. **Player:** TIDAL stream resolution, service-owned media queue, Now Playing, native system transports, and media-state reconnection. Per-network quality selection remains unimplemented.
+3. **Player:** TIDAL stream resolution through an SDK-owned detached queue, Now Playing, queue controls, and media-state reconnection. Quality application remains separate work.
 4. **Offline:** downloads and storage management, only after online playback is reliable.
 
-The current implementation includes the shell, paginated collection reads, artist/album/playlist details, grouped search, and basic online playback from every song list. Offline controls must only appear as active actions when their backing behavior is connected.
+The current implementation includes the shell, paginated collection reads, artist/album/playlist details, grouped search, and SDK-owned online playback from song lists. The audio service owns background track transitions and continuous playback. Offline controls must only appear as active actions when their backing behavior is connected.

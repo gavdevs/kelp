@@ -66,6 +66,15 @@ android {
         error += "RestrictedApi"
     }
 
+    packaging {
+        resources {
+            // Legacy jar indexes and version manifests from the SDK server's
+            // Netty/ktor stack; nothing reads them at runtime.
+            excludes += "META-INF/INDEX.LIST"
+            pickFirsts += "META-INF/io.netty.versions.properties"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -86,22 +95,6 @@ dependencies {
         exclude(group = "com.google.crypto.tink", module = "tink")
     }
     implementation(libs.kotlinx.coroutines)
-
-    // Keep the SDK client and Kelp's foreground media session on one tested
-    // Media3 runtime; TIDAL Auth/API do not own the player.
-    listOf(
-        "media3-common",
-        "media3-exoplayer",
-        "media3-session",
-        "media3-exoplayer-dash",
-        "media3-exoplayer-hls",
-        "media3-datasource-okhttp",
-    ).forEach { module ->
-        implementation("androidx.media3:$module") {
-            version { strictly("1.5.0") }
-            because("Keep the SDK client and Kelp playback service on the same Media3 runtime")
-        }
-    }
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlinx.coroutines.test)

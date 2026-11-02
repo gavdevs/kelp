@@ -18,7 +18,7 @@
 
 ## What is it?
 
-Kelp streams TIDAL through saved songs, albums, artists, playlists, daily mixes, and search in a text-first Light UI. The Light SDK owns the tool UI and navigation; a Kelp-owned Media3 media-session service owns background playback and publishes system transport controls. Full-length stream resolution uses the unofficial first-party-client technique used by [phono](https://github.com/jonathancaudill/phono), not the official TIDAL Player SDK.
+Kelp provides saved songs, albums, artists, playlists, daily mixes, and search in a monochrome interface. Kelp resolves full-length TIDAL streams with first-party credentials, using the approach of [phono](https://github.com/jonathancaudill/phono). The Light SDK owns the audio player and its background service.
 
 **You need a paid TIDAL subscription.** Like phono, kelp never works around that and never will.
 
@@ -43,6 +43,7 @@ Kelp is **sideload-only** today. It can't go through Light's hosted tool builder
 - Foreground-service playback outside Kelp, with track metadata and system play/pause/previous/next controls
 - Full-width navigation and transport touch targets, with Now Playing accessible from the top-left waveform
 - LOSSLESS streaming by default (falls back to lower quality if needed)
+- SDK-owned background playback, track transitions, and system media controls
 - Follows LightOS theming and hardware-button navigation
 
 Loading audio is distinct from playing; preparation failures remain visible in Now Playing. Returning from playback keeps loaded browse results. Settings exposes continuous playback and sign-out, with read-only information about the actual streaming policy. Nonfunctional quality, normalization, explicit-filter, and offline controls are not presented as working features.
@@ -51,7 +52,7 @@ Background playback is not persistent playback recovery: force-stop, reboot, or 
 
 ## Build it yourself
 
-You'll need JDK 17, an Android SDK (platform 36), and the companion Light SDK checkout at `../light-sdk` (branch `codex/kelp-official-sdk`, based on upstream v0.1.1 plus kelp's small compatibility patches):
+Builds require JDK 17, Android SDK platform 36, and the companion `gavdevs/light-sdk` fork at `../light-sdk` on `main`. The fork carries the `LightAudioQueueSessions` streaming API and the companion cert override Kelp needs; Kelp and its companion SDK changes must ship together.
 
 ```bash
 ./gradlew :app:assembleDebug
@@ -69,6 +70,16 @@ You'll also want your own TIDAL developer credentials in `local.properties` (see
 Local builds default to one worker, two JVM-visible processors, a 1.5 GiB heap, and in-process Kotlin compilation, following Lightious's low-resource build setup. The playback migration was built against adjacent SDK `52fbc5a8aedbd3c4c88037580709e53540086229`; existing local SDK changes were preserved.
 
 CI runs tests + assemble on every push; pushing a matching `v*` tag publishes a signed release automatically.
+
+### Background playback
+
+`detached-audio` declares the SDK media service and its required permissions. Kelp starts a service-owned streaming queue through `LightAudioQueueSessions`. The service resolves each track when needed and loads recommendations without a screen or controller.
+
+Closing Kelp disconnects the UI without stopping playback. Reopening Kelp reads the existing queue and position. Sign-out clears the queue and cancels pending playback work. An abandoned paused session stops after 60 seconds. Queue restoration after service or process destruction is not supported.
+
+The SDK owns Media3 and the DASH decoder dependency. Kelp no longer pins the older Media3 runtime used by its separate player.
+
+For device verification, play several tracks with the screen off for at least 15 minutes. Verify automatic transitions, system pause/resume and next controls, reconnection, and sign-out. JVM tests cannot establish LightOS power-management behavior.
 
 ## Legal / disclaimers
 

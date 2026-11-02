@@ -13,7 +13,7 @@ class KelpBootstrapProvider : ContentProvider() {
         val appContext = context?.applicationContext ?: return false
         with(LightSdkServer) {
             defaultClientFilterLevel = ClientFilterLevel.AllowLightSignedApks
-            checkCert = { packageName ->
+            checkCertOverride = { packageName ->
                 if (packageName == appContext.packageName) {
                     ClientCertType.LightSdkSignedUnverified
                 } else {
