@@ -66,6 +66,15 @@ android {
         error += "RestrictedApi"
     }
 
+    packaging {
+        resources {
+            // Legacy jar indexes and version manifests from the SDK server's
+            // Netty/ktor stack; nothing reads them at runtime.
+            excludes += "META-INF/INDEX.LIST"
+            pickFirsts += "META-INF/io.netty.versions.properties"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
