@@ -52,7 +52,7 @@ Background playback is not persistent playback recovery: force-stop, reboot, or 
 
 ## Build it yourself
 
-Builds require JDK 17, Android SDK platform 36, and the companion Light SDK fork at `../light-sdk`. The fork must include both the `codex/kelp-official-sdk` compatibility changes and the `LightAudioQueueSessions` streaming API. Kelp and its companion SDK changes must ship together.
+Builds require JDK 17, Android SDK platform 36, and the companion `gavdevs/light-sdk` fork at `../light-sdk` on `main`. The fork carries the `LightAudioQueueSessions` streaming API and the companion cert override Kelp needs; Kelp and its companion SDK changes must ship together.
 
 ```bash
 ./gradlew :app:assembleDebug

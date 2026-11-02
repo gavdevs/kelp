@@ -17,8 +17,8 @@ jobs:
       - name: Checkout companion light-sdk
         uses: actions/checkout@v4
         with:
-          repository: LooseWireDev/light-sdk
-          ref: codex/kelp-official-sdk
+          repository: gavdevs/light-sdk
+          ref: 251237ef3778c907c5dbd89e84685532c9d99a28
           path: light-sdk
 
       - name: Set up JDK 17

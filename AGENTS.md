@@ -1,6 +1,6 @@
 # Kelp – agent notes
 
-Light Phone III TIDAL client built on `lightphone/light-sdk` (composite build from `../light-sdk`, branch `codex/kelp-official-sdk`, based on official v0.1.1). Kotlin + Compose throughout.
+Light Phone III TIDAL client built on the `gavdevs/light-sdk` fork (composite build from `../light-sdk`, pinned to `main` at `251237e`). Kotlin + Compose throughout.
 
 ## Module map
 
@@ -39,7 +39,7 @@ Playback changes also require the companion SDK's `:sdk:client:testDebugUnitTest
 
 ## CI / releases
 
-- `.github/workflows/build.yml`: tests + debug assemble on push/PR. CI checks out the companion `LooseWireDev/light-sdk` (branch `codex/kelp-official-sdk`) next to the repo; locally that checkout must sit at `../light-sdk` (override with `-Ptide.sdkPath=...`).
+- `.github/workflows/build.yml`: tests + debug assemble on push/PR. CI checks out the companion `gavdevs/light-sdk` (pinned revision on `main`) next to the repo; locally that checkout must sit at `../light-sdk` (override with `-Ptide.sdkPath=...`).
 - `.github/workflows/release.yml`: tag-triggered (`v*`) signed release. Tag must match `versionName` in `app/lighttool.toml`; bump `versionCode` each release. Signing uses Actions secrets `TIDE_RELEASE_*`; the keystore backup lives at `~/.tide-keys/tide-release.jks` (storepass in `tide-release.storepass`, 600), outside the repo.
 - GitHub Release APKs are signed with the release key; dev-key-signed installs must be uninstalled first (signature mismatch on upgrade).
 
