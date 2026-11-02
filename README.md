@@ -18,7 +18,7 @@
 
 ## What is it?
 
-Kelp streams TIDAL the way you actually use it — your saved songs, albums, artists, playlists, daily mixes, and search — squeezed into a calm, text-first interface that fits a minimal phone. Under the hood it runs the Light SDK and plays real, full-length tracks through its own Media3/ExoPlayer pipeline, using the same proven technique as [phono](https://github.com/jonathancaudill/phono) and the other community clients (orpheusdl, streamrip).
+Kelp provides saved songs, albums, artists, playlists, daily mixes, and search in a monochrome interface. Kelp resolves full-length TIDAL streams with first-party credentials, using the approach of [phono](https://github.com/jonathancaudill/phono). The Light SDK owns the audio player and its background service.
 
 **You need a paid TIDAL subscription.** Like phono, kelp never works around that and never will.
 
@@ -41,11 +41,12 @@ Kelp is **sideload-only** today. It can't go through Light's hosted tool builder
 - Full catalog search with per-section paging
 - Queue with shuffle, repeat, seek, and "keep playing similar songs" continuous playback
 - LOSSLESS streaming by default (falls back to lower quality if needed)
+- SDK-owned background playback, track transitions, and system media controls
 - Follows LightOS theming and hardware-button navigation
 
 ## Build it yourself
 
-You'll need JDK 17, an Android SDK (platform 36), and the companion Light SDK checkout at `../light-sdk` (branch `codex/kelp-official-sdk`, based on upstream v0.1.1 plus kelp's small compatibility patches):
+Builds require JDK 17, Android SDK platform 36, and the companion Light SDK fork at `../light-sdk`. The fork must include both the `codex/kelp-official-sdk` compatibility changes and the `LightAudioQueueSessions` streaming API. Kelp and its companion SDK changes must ship together.
 
 ```bash
 ./gradlew :app:assembleDebug
@@ -61,6 +62,16 @@ scripts/build-release.sh
 You'll also want your own TIDAL developer credentials in `local.properties` (see `local.properties.example`) if you're hacking rather than installing releases.
 
 CI runs tests + assemble on every push; pushing a matching `v*` tag publishes a signed release automatically.
+
+### Background playback
+
+`detached-audio` declares the SDK media service and its required permissions. Kelp starts a service-owned streaming queue through `LightAudioQueueSessions`. The service resolves each track when needed and loads recommendations without a screen or controller.
+
+Closing Kelp disconnects the UI without stopping playback. Reopening Kelp reads the existing queue and position. Sign-out clears the queue and cancels pending playback work. An abandoned paused session stops after 60 seconds. Queue restoration after service or process destruction is not supported.
+
+The SDK owns Media3 and the DASH decoder dependency. Kelp no longer pins the older Media3 runtime used by its separate player.
+
+For device verification, play several tracks with the screen off for at least 15 minutes. Verify automatic transitions, system pause/resume and next controls, reconnection, and sign-out. JVM tests cannot establish LightOS power-management behavior.
 
 ## Legal / disclaimers
 

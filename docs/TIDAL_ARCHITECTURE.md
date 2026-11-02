@@ -4,10 +4,10 @@ This document records the TIDAL Developer Platform constraints that shape Kelp. 
 
 ## Boundaries
 
-- The Light SDK owns the tool lifecycle, screen stack, system typography, monochrome UI primitives, LightOS icons, binder transport, and detached-audio capability declaration.
+- The Light SDK owns the tool lifecycle, UI primitives, binder transport, and detached audio service. Its service owns the player, queue, media session, and playback jobs.
 - The official TIDAL Android Auth module owns developer-app OAuth PKCE credentials and refresh for catalog calls. Kelp requests credentials from its `CredentialsProvider` for API work; it never copies tokens into the app protocol or preferences. A second, phono-style first-party PKCE sign-in (`TidalStreamingAuth`) stores separate streaming tokens in a private SharedPreferences file on the server side only.
 - The official TIDAL API module owns generated catalog calls. Kelp maps generated JSON:API resource objects into small protocol-owned models before they cross the Light binder. A narrow Retrofit adapter covers only the current Search route while the latest Android release still carries the preceding generated shape.
-- Kelp owns playback. Developer-app tokens only resolve 30-second previews, so Kelp resolves streams just-in-time against the private `playbackinfopostpaywall` endpoint with first-party credentials (phono's recipe) and plays them with Media3 ExoPlayer. The official TIDAL Player module is no longer used.
+- Kelp resolves full-length streams through the private `playbackinfopostpaywall` endpoint with first-party credentials. Developer-app tokens only resolve previews. The SDK plays these sources. The official TIDAL Player module is not used.
 - The app module never imports TIDAL SDK types. The merged server module is the integration boundary and exposes typed, versioned Kelp RPC methods.
 
 ## Public API map
@@ -36,13 +36,19 @@ The public API does not expose a third-party playback-history resource, and `pla
 
 ## Playback and quality
 
-Playback is Kelp-owned end to end, following phono (github.com/jonathancaudill/phono; also orpheusdl/python-tidal). Stream entitlement is keyed on the OAuth client: tokens issued to registered developer apps only resolve 30-second previews, so Kelp performs a second PKCE sign-in with TIDAL's first-party Android client id (the clear hi-res tier; no Widevine CDM needed). The login screen chains both sign-ins on one WebView — the developer-app login for the catalog, then the first-party login for playback — and shared cookies usually carry the session into step two without re-entry.
+Stream entitlement depends on the OAuth client. Developer-app tokens only resolve 30-second previews. Kelp therefore uses a second PKCE sign-in with TIDAL's first-party Android client ID. This client supports clear streams without a Widevine CDM. The login screen chains catalog and playback sign-ins in one WebView.
 
-`TidalStreamResolver` resolves each track just-in-time: base64 BTS manifests yield progressive signed URLs; clear DASH manifests are sanitized (Media3 crashes on TIDAL's non-numeric `AdaptationSet group="main"`) and written to a temp MPD. ExoPlayer plays the result; the queue, shuffle/repeat, and continuous playback remain Kelp queue policy in `KelpPlayerController`.
+`TidalStreamResolver` resolves each track when the SDK requests it. BTS manifests provide signed progressive URLs. Clear DASH manifests become local MPD files after invalid `group="main"` attributes are removed. Kelp supplies the file and its MIME type to the SDK. The SDK provides the DASH decoder.
 
-The Light SDK's detached-audio capability remains declared so LightOS can support the tool's background audio lifecycle.
+`KelpPlayerController` is a server-side adapter to `LightAudioQueueSessions`, not an audio player. The SDK service owns resolution jobs, shuffle, repeat, seek, source-error recovery, and queue transitions. A continuation callback asks Kelp's catalog for similar tracks. Neither callback depends on a screen ViewModel.
 
-Continuous playback is queue policy, not a looping toggle. When enabled and the chosen queue approaches its end, Kelp requests `similarTracks` for the last seed track, removes duplicates and explicit tracks when required by settings, then appends a bounded page to the queue.
+The SDK publishes the logical queue and track metadata through a platform media session. Temporary controllers release after commands, but the started foreground service retains playback. During source resolution, the session reports buffering and holds a partial wake lock. ExoPlayer manages playback wake locks and audio focus.
+
+The `detached-audio` capability generates the media service, foreground-service permissions, and wake-lock permission. The declaration alone does not attach another player to that service.
+
+Sign-out stops the SDK queue before Kelp clears either authentication session. Generation checks reject stale resolution and recommendation results. Reopening the UI reads the live SDK snapshot. An abandoned paused service stops after 60 seconds. Queue state does not survive service or process destruction.
+
+Continuous playback is queue policy, not a looping toggle. At the end of the chosen queue, the SDK asks Kelp for `similarTracks` based on the last seed track. Duplicate tracks are removed before the returned page extends the queue.
 
 ## Offline downloads
 

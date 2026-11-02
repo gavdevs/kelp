@@ -17,9 +17,9 @@ Distribution lane: **sideload-only, experimental/local.** Not eligible for Light
 - **`:app` never imports TIDAL SDK, okhttp, Media3, or `:server` types.** Everything crosses the Light binder via `KelpRemoteMethod` IDs (`com.loosewire.kelp.*`). Add a feature by extending `:protocol` contracts, dispatch in `KelpServiceMethods`, and a client method in `KelpClient.kt`.
 - **`:protocol` stays Android/TIDAL-free.** Serializable models only, no platform imports.
 - **Two TIDAL sessions** (`KelpRuntime`): developer-app auth3 login for the v2 Public API (catalog) + `TidalStreamingAuth` first-party PKCE for playback. Catalog endpoints only accept the developer token; full-length streams only resolve with the first-party token. Do not collapse them.
-- **Playback is Kelp-owned**: `TidalStreamResolver` (private `playbackinfopostpaywall`, BTS/clear-DASH) + Media3 ExoPlayer in `KelpPlayerController`. The official TIDAL Player SDK was removed on purpose — do not reintroduce it.
-- **`KelpPlayerController` threading**: queue state under `stateLock`; ExoPlayer calls only on the main thread via `onPlayer{}`; never call `onPlayer` (blocking post) while holding `stateLock`; playback liveness in `@Volatile` fields.
-- **Media3 is strict-pinned to 1.5.0** in both `app` and `server` (Light SDK resolves a newer version). Keep both pins in sync.
+- **The Light SDK owns playback** through `LightAudioQueueSessions` and its detached `MediaSessionService`. Kelp owns TIDAL stream resolution (`playbackinfopostpaywall`, BTS/clear-DASH) and catalog recommendations. Do not create a second player or reintroduce the official TIDAL Player SDK.
+- **Playback threading**: the SDK queue is main-thread confined. TIDAL resolver callbacks use IO. Synchronous playback RPCs must stay off Main. Never hold `catalogLock` while waiting for the SDK. Playback commands and sign-out serialize under `playerLock`.
+- **The SDK owns Media3 versions and decoder dependencies**, including DASH. The old app/server 1.5.0 pins are removed. Both Kelp modules exclude desktop Tink from their SDK-client dependency because authentication requires `tink-android`.
 - **`lighttool.toml` is the identity source** (app id, version, capabilities, `serverPackage = "com.loosewire.kelp"`). Do not hand-write what the plugin generates.
 - **Secrets**: `local.properties` holds the developer-app client id and is git-ignored. Never embed it. The first-party client id in `TidalStreamingAuth` is intentionally embedded (public, shared with orpheusdl/phono; rotation procedure in `docs/TIDAL_ARCHITECTURE.md` and README).
 
@@ -33,6 +33,8 @@ scripts/build-release.sh          # tests + minified release APK in dist/ (handl
 ```
 
 Verification for any change: the narrowest useful unit tests first (`:protocol:test`, `:app:testDebugUnitTest`, `:server:testDebugUnitTest`), then `:app:assembleDebug`; run `:app:assembleRelease` for anything touching server code (R8 path) — or just run `scripts/build-release.sh`. Install: `adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk`; pick an explicit serial when devices are ambiguous.
+
+Playback changes also require the companion SDK's `:sdk:client:testDebugUnitTest` and a device lifecycle check. Verify screen-off playback across track transitions after the Activity and controller are released. A stock emulator cannot prove LP3-specific power behavior.
 
 ## CI / releases
 

@@ -89,6 +89,11 @@ kotlin {
 dependencies {
     implementation(project(":protocol"))
     implementation(libs.sdk.server)
+    implementation(libs.sdk.client) {
+        exclude(group = "com.google.mlkit")
+        exclude(group = "androidx.camera")
+        exclude(group = "com.google.crypto.tink", module = "tink")
+    }
     implementation(libs.compose.activity)
     implementation(libs.androidx.lifecycle.runtime)
     implementation(libs.kotlinx.coroutines)
@@ -101,18 +106,5 @@ dependencies {
         exclude(group = "com.google.crypto.tink", module = "tink-android")
     }
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    // Playback runs through Kelp's own first-party playbackinfo resolution +
-    // Media3 ExoPlayer (phono's recipe): the official TIDAL Player module only
-    // plays 30-second previews for unapproved developer apps.
-    listOf(
-        "media3-common",
-        "media3-exoplayer",
-        "media3-exoplayer-dash",
-    ).forEach { module ->
-        implementation("androidx.media3:$module") {
-            version { strictly("1.5.0") }
-            because("Match the Media3 1.5.0 runtime pinned by the app module")
-        }
-    }
     testImplementation(libs.kotlin.test)
 }
