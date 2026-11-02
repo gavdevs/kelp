@@ -20,6 +20,7 @@ Distribution lane: **sideload-only, experimental/local.** Not eligible for Light
 - **The Light SDK owns playback** through `LightAudioQueueSessions` and its detached `MediaSessionService`. Kelp owns TIDAL stream resolution (`playbackinfopostpaywall`, BTS/clear-DASH) and catalog recommendations. Do not create a second player or reintroduce the official TIDAL Player SDK.
 - **Playback threading**: the SDK queue is main-thread confined. TIDAL resolver callbacks use IO. Synchronous playback RPCs must stay off Main. Never hold `catalogLock` while waiting for the SDK. Playback commands and sign-out serialize under `playerLock`.
 - **The SDK owns Media3 versions and decoder dependencies**, including DASH. The old app/server 1.5.0 pins are removed. Both Kelp modules exclude desktop Tink from their SDK-client dependency because authentication requires `tink-android`.
+- **Only implemented settings**: continuous playback is applied at queue start. Quality selection, normalization, explicit filtering, and offline playback are not implemented; do not reintroduce preference-only controls.
 - **`lighttool.toml` is the identity source** (app id, version, capabilities, `serverPackage = "com.loosewire.kelp"`). Do not hand-write what the plugin generates.
 - **Secrets**: `local.properties` holds the developer-app client id and is git-ignored. Never embed it. The first-party client id in `TidalStreamingAuth` is intentionally embedded (public, shared with orpheusdl/phono; rotation procedure in `docs/TIDAL_ARCHITECTURE.md` and README).
 

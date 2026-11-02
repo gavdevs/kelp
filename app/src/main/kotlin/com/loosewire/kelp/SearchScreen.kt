@@ -150,7 +150,7 @@ class SearchScreen(sealedActivity: SealedLightActivity) : LightScreen<Unit, Sear
     }
 }
 
-private class SearchResultsViewModel(
+internal class SearchResultsViewModel(
     private val query: String,
     private val section: SearchSection,
     private val kelpClient: KelpClient = BinderTideClient,
@@ -168,6 +168,7 @@ private class SearchResultsViewModel(
     private val _state = MutableStateFlow(UiState())
     val state = _state.asStateFlow()
     private var requestJob: Job? = null
+    private var requestGeneration = 0L
     private val playbackPreferences = preferences?.playback?.stateIn(
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
@@ -176,27 +177,31 @@ private class SearchResultsViewModel(
 
     override fun onScreenShow(screen: SimpleLightScreen<Unit>) {
         super.onScreenShow(screen)
-        if (!_state.value.loaded) loadFirstPage()
+        if (!_state.value.loaded && requestJob?.isActive != true) loadFirstPage()
     }
 
     fun loadFirstPage() {
+        val generation = ++requestGeneration
         requestJob?.cancel()
         _state.value = UiState()
-        requestJob = viewModelScope.launch { loadPage(null, append = false) }
+        requestJob = viewModelScope.launch { loadPage(null, append = false, generation = generation) }
     }
 
     fun loadMore() {
         val current = _state.value
         val cursor = current.results.nextCursor ?: return
-        if (current.loadingMore) return
+        if (current.loading || current.loadingMore) return
+        val generation = ++requestGeneration
         _state.value = current.copy(loadingMore = true, loadMoreError = null)
         requestJob?.cancel()
-        requestJob = viewModelScope.launch { loadPage(cursor, append = true) }
+        requestJob = viewModelScope.launch { loadPage(cursor, append = true, generation = generation) }
     }
 
-    private suspend fun loadPage(cursor: String?, append: Boolean) {
+    private suspend fun loadPage(cursor: String?, append: Boolean, generation: Long) {
         val before = _state.value
-        when (val result = kelpClient.searchPage(query, section, cursor)) {
+        val result = kelpClient.searchPage(query, section, cursor)
+        if (generation != requestGeneration) return
+        when (result) {
             is KelpClientResult.Success -> _state.value = UiState(
                 results = if (append) before.results.append(result.data) else result.data,
                 loading = false,

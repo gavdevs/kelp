@@ -113,7 +113,7 @@ class TidalCatalog(
     override suspend fun search(query: String): SearchResults {
         val response = searchApi.searchResultsGet(
             query = query,
-            include = listOf("artists", "albums", "tracks", "playlists"),
+            include = "artists,albums.artists,tracks,playlists",
         )
         val body = response.successBody("search results")
         val results = TidalCatalogMapper.mapSearchJson(body)
@@ -125,24 +125,30 @@ class TidalCatalog(
         section: SearchSection,
         cursor: String?,
     ): SearchResults {
-        val include = when (section) {
-            SearchSection.Artists -> "artists"
-            SearchSection.Songs -> "tracks"
-            SearchSection.Albums -> "albums"
-            SearchSection.Playlists -> "playlists"
-        }
+        val relationship = section.relationshipName
+        val include = if (section == SearchSection.Albums) "$relationship.artists" else relationship
         var combined = SearchResults(emptyList(), emptyList(), emptyList())
         val seenCursors = mutableSetOf<String?>()
         var nextCursor = cursor
         var requests = 0
         do {
             if (!seenCursors.add(nextCursor)) break
-            val body = searchApi.searchResultsGet(
-                query = query,
-                include = listOf(include),
-                pageCursor = nextCursor,
-            ).successBody("search results")
-            val page = TidalCatalogMapper.mapSearchJson(body, section)
+            val continuation = nextCursor?.let(SearchContinuation::decode)
+            val response = if (continuation == null) {
+                searchApi.searchResultsGet(query = query, include = include)
+            } else {
+                searchApi.searchRelationshipGet(
+                    id = continuation.searchId,
+                    relationship = relationship,
+                    include = include,
+                    pageCursor = continuation.pageCursor,
+                )
+            }
+            val page = TidalCatalogMapper.mapSearchJson(
+                response.successBody("search results"),
+                section,
+                continuation?.searchId,
+            )
             combined = combined.merge(page)
             nextCursor = page.nextCursor
             requests += 1
@@ -429,25 +435,47 @@ internal object TidalCatalogMapper {
         return Page(tracks, body.links.next?.let(::extractCursor))
     }
 
-    internal fun mapSearchJson(body: String, section: SearchSection? = null): SearchResults {
-        val document = rawDocument(body, section)
+    internal fun mapSearchJson(
+        body: String,
+        section: SearchSection? = null,
+        searchId: String? = null,
+    ): SearchResults {
+        val document = rawDocument(body)
+        val search = document.data.firstOrNull { it.string("type") == "searchResults" }
+        val relationships = search?.get("relationships") as? JsonObject
         val included = document.included
         val artistsById = included.resourcesOfType("artists").associateBy { it.id() }
         val albumsById = included.resourcesOfType("albums").associateBy { it.id() }
+
+        // `included` is an unordered resource lookup, not the ranked result list.
+        fun hits(type: String): List<JsonObject> {
+            if (section != null && section.relationshipName != type) return emptyList()
+            val identifiers = if (searchId != null) {
+                document.data
+            } else {
+                (relationships?.get(type) as? JsonObject)?.resources("data").orEmpty()
+            }
+            val resourcesById = included.resourcesOfType(type).associateBy { it.id() }
+            return identifiers.resourcesOfType(type)
+                .mapNotNull { resourcesById[it.id()] }
+                .distinctBy { it.id() }
+        }
+
+        val nextLink = if (searchId != null) {
+            document.nextLink
+        } else {
+            section?.let { (relationships?.get(it.relationshipName) as? JsonObject)?.nextLink() }
+        }
+        val id = searchId ?: search?.string("id")
+        val nextCursor = nextLink?.let(::extractCursor)?.let { cursor ->
+            id?.let { SearchContinuation(it, cursor).encode() }
+        }
         return SearchResults(
-            artists = artistsById.values
-                .map(::mapRawArtist)
-                .take(SearchSectionLimit),
-            releases = albumsById.values
-                .map { mapRawAlbum(it, artistsById) }
-                .take(SearchSectionLimit),
-            tracks = included.resourcesOfType("tracks")
-                .map { mapRawTrack(it, artistsById, albumsById) }
-                .take(SearchSectionLimit),
-            playlists = included.resourcesOfType("playlists")
-                .map(::mapRawPlaylist)
-                .take(SearchSectionLimit),
-            nextCursor = document.nextCursor,
+            artists = hits("artists").map(::mapRawArtist),
+            releases = hits("albums").map { mapRawAlbum(it, artistsById) },
+            tracks = hits("tracks").map { mapRawTrack(it, artistsById, albumsById) },
+            playlists = hits("playlists").map(::mapRawPlaylist),
+            nextCursor = nextCursor,
         )
     }
 
@@ -580,34 +608,23 @@ internal object TidalCatalogMapper {
         )
     }
 
-    private fun rawDocument(body: String, section: SearchSection? = null): RawJsonApiDocument {
+    private fun rawDocument(body: String): RawJsonApiDocument {
         val root = Json.parseToJsonElement(body) as? JsonObject
             ?: throw IllegalArgumentException("TIDAL response was not a JSON object")
-        val relationshipName = when (section) {
-            SearchSection.Artists -> "artists"
-            SearchSection.Songs -> "tracks"
-            SearchSection.Albums -> "albums"
-            SearchSection.Playlists -> "playlists"
-            null -> null
-        }
-        val rootNext = root["links"]
-            ?.let { it as? JsonObject }
-            ?.string("next")
-        val relationshipNext = relationshipName?.let { name ->
-            root.resources("data").firstOrNull()
-                ?.get("relationships")
-                ?.let { it as? JsonObject }
-                ?.get(name)
-                ?.let { it as? JsonObject }
-                ?.get("links")
-                ?.let { it as? JsonObject }
-                ?.string("next")
-        }
         return RawJsonApiDocument(
             data = root.resources("data"),
             included = root.resources("included"),
-            nextCursor = (relationshipNext ?: rootNext)?.let(::extractCursor),
+            nextLink = root.nextLink(),
         )
+    }
+
+    private fun JsonObject.nextLink(): String? {
+        val links = this["links"] as? JsonObject ?: return null
+        return when (val next = links["next"]) {
+            is JsonPrimitive -> next.contentOrNull
+            is JsonObject -> next.string("href")
+            else -> null
+        }
     }
 
     private fun JsonObject.resources(name: String): List<JsonObject> =
@@ -642,7 +659,7 @@ internal object TidalCatalogMapper {
     private data class RawJsonApiDocument(
         val data: List<JsonObject>,
         val included: List<JsonObject>,
-        val nextCursor: String?,
+        val nextLink: String?,
     )
 
     internal fun mapArtistDetail(
@@ -769,9 +786,16 @@ internal object TidalCatalogMapper {
     }.getOrNull()
 
     private val DurationPattern = Regex("PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+(?:\\.\\d+)?)S)?")
-    private const val SearchSectionLimit = 8
 
 }
+
+private val SearchSection.relationshipName: String
+    get() = when (this) {
+        SearchSection.Artists -> "artists"
+        SearchSection.Songs -> "tracks"
+        SearchSection.Albums -> "albums"
+        SearchSection.Playlists -> "playlists"
+    }
 
 interface Catalog {
     suspend fun collection(cursor: String?): Page<ReleaseSummary>

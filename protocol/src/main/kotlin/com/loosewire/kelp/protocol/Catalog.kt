@@ -164,6 +164,9 @@ data class PlaybackSnapshot(
     val isPlaying: Boolean = false,
     val shuffle: Boolean = false,
     val repeatMode: RepeatMode = RepeatMode.Off,
+    val isLoading: Boolean = false,
+    val playWhenReady: Boolean = isPlaying,
+    val error: KelpError? = null,
 )
 
 @Serializable

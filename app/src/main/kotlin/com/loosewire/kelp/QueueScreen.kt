@@ -1,8 +1,6 @@
 package com.loosewire.kelp
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,7 +26,6 @@ import com.thelightphone.sdk.LightViewModel
 import com.thelightphone.sdk.SealedLightActivity
 import com.thelightphone.sdk.SimpleLightScreen
 import com.thelightphone.sdk.ui.LightBarButton
-import com.thelightphone.sdk.ui.LightBottomBar
 import com.thelightphone.sdk.ui.LightIcon
 import com.thelightphone.sdk.ui.LightIcons
 import com.thelightphone.sdk.ui.LightScrollView
@@ -87,15 +84,26 @@ class PlayerViewModel(
 
     private suspend fun refreshPlayback() {
         when (val result = kelpClient.playback()) {
-            is KelpClientResult.Success -> _state.value = UiState(playback = result.data, loading = false)
-            is KelpClientResult.Failure -> _state.value = UiState(loading = false, error = result.error)
+            is KelpClientResult.Success -> _state.value = UiState(
+                playback = result.data,
+                loading = false,
+                error = result.data.error,
+            )
+            is KelpClientResult.Failure -> _state.value = _state.value.copy(
+                loading = false,
+                error = result.error,
+            )
         }
     }
 
     fun control(command: PlayerCommand) {
         viewModelScope.launch {
             when (val result = kelpClient.controlPlayback(command)) {
-                is KelpClientResult.Success -> _state.value = UiState(playback = result.data, loading = false)
+                is KelpClientResult.Success -> _state.value = UiState(
+                    playback = result.data,
+                    loading = false,
+                    error = result.data.error,
+                )
                 is KelpClientResult.Failure -> _state.value = _state.value.copy(error = result.error)
             }
         }
@@ -115,7 +123,11 @@ class PlayerViewModel(
         seekJob = viewModelScope.launch {
             delay(SeekDebounceMillis)
             when (val result = kelpClient.seekPlayback(positionMs)) {
-                is KelpClientResult.Success -> _state.value = UiState(playback = result.data, loading = false)
+                is KelpClientResult.Success -> _state.value = UiState(
+                    playback = result.data,
+                    loading = false,
+                    error = result.data.error,
+                )
                 is KelpClientResult.Failure -> _state.value = _state.value.copy(error = result.error)
             }
         }
@@ -168,22 +180,21 @@ class QueueScreen(sealedActivity: SealedLightActivity) :
                     state.playback?.current == null -> Message(
                         "Nothing is playing.\n\nChoose a song, album, or playlist to begin.",
                     )
-                    else -> PlayerContent(state.playback!!)
+                    else -> PlayerContent(state.playback!!, state.error)
                 }
             }
         }
     }
 
     @Composable
-    @OptIn(ExperimentalFoundationApi::class)
-    private fun PlayerContent(playback: PlaybackSnapshot) {
+    private fun PlayerContent(playback: PlaybackSnapshot, error: KelpError?) {
         val track = playback.current ?: return
         Column(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 2f.gridUnitsAsDp()),
+                    .padding(horizontal = 1f.gridUnitsAsDp()),
                 contentAlignment = Alignment.Center,
             ) {
                 Column(
@@ -192,25 +203,25 @@ class QueueScreen(sealedActivity: SealedLightActivity) :
                 ) {
                     LightText(
                         text = track.title,
-                        variant = LightTextVariant.Heading,
+                        variant = LightTextVariant.Subheading,
                         align = TextAlign.Center,
-                        maxLines = 1,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .basicMarquee(iterations = Int.MAX_VALUE),
+                        maxLines = 2,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                     LightText(
                         text = track.artistName,
-                        variant = LightTextVariant.Subheading,
+                        variant = LightTextVariant.Fine,
                         align = TextAlign.Center,
+                        maxLines = 2,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     track.albumTitle?.let {
                         LightText(
                             text = it,
-                            variant = LightTextVariant.Detail,
+                            variant = LightTextVariant.Fine,
                             lighten = true,
                             align = TextAlign.Center,
+                            maxLines = 2,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -223,6 +234,18 @@ class QueueScreen(sealedActivity: SealedLightActivity) :
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 0.5f.gridUnitsAsDp()),
+                        )
+                    }
+                    when {
+                        error != null -> LightText(
+                            text = error.message,
+                            variant = LightTextVariant.Detail,
+                            align = TextAlign.Center,
+                        )
+                        playback.isLoading -> LightText(
+                            text = "Loading audio…",
+                            variant = LightTextVariant.Detail,
+                            align = TextAlign.Center,
                         )
                     }
 
@@ -275,35 +298,33 @@ class QueueScreen(sealedActivity: SealedLightActivity) :
                     )
                 }
             }
-            LightBottomBar(
-                items = listOf(
-                    LightBarButton.LightIcon(
-                        icon = LightIcons.SHUFFLE,
-                        contentDescription = if (playback.shuffle) "Shuffle on" else "Shuffle off",
-                        onClick = { viewModel.control(PlayerCommand.ToggleShuffle) },
-                    ),
-                    LightBarButton.LightIcon(
-                        icon = LightIcons.REWIND,
-                        contentDescription = "Previous",
-                        onClick = { viewModel.control(PlayerCommand.Previous) },
-                    ),
-                    LightBarButton.LightIcon(
-                        icon = if (playback.isPlaying) LightIcons.PAUSE else LightIcons.PLAY,
-                        contentDescription = if (playback.isPlaying) "Pause" else "Play",
-                        onClick = { viewModel.control(PlayerCommand.TogglePlayPause) },
-                    ),
-                    LightBarButton.LightIcon(
-                        icon = LightIcons.FAST_FORWARD,
-                        contentDescription = "Next",
-                        onClick = { viewModel.control(PlayerCommand.Next) },
-                    ),
-                    LightBarButton.LightIcon(
-                        icon = LightIcons.LOOP,
-                        contentDescription = playback.repeatMode.description,
-                        onClick = { viewModel.control(PlayerCommand.CycleRepeat) },
-                    ),
-                ),
-            )
+            KelpActionBar {
+                KelpActionIcon(
+                    icon = LightIcons.SHUFFLE,
+                    contentDescription = if (playback.shuffle) "Shuffle on" else "Shuffle off",
+                    onClick = { viewModel.control(PlayerCommand.ToggleShuffle) },
+                )
+                KelpActionIcon(
+                    icon = LightIcons.REWIND,
+                    contentDescription = "Previous",
+                    onClick = { viewModel.control(PlayerCommand.Previous) },
+                )
+                KelpActionIcon(
+                    icon = if (playback.playWhenReady) LightIcons.PAUSE else LightIcons.PLAY,
+                    contentDescription = if (playback.playWhenReady) "Pause" else "Play",
+                    onClick = { viewModel.control(PlayerCommand.TogglePlayPause) },
+                )
+                KelpActionIcon(
+                    icon = LightIcons.FAST_FORWARD,
+                    contentDescription = "Next",
+                    onClick = { viewModel.control(PlayerCommand.Next) },
+                )
+                KelpActionIcon(
+                    icon = LightIcons.LOOP,
+                    contentDescription = playback.repeatMode.description,
+                    onClick = { viewModel.control(PlayerCommand.CycleRepeat) },
+                )
+            }
         }
     }
 

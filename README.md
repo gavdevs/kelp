@@ -37,12 +37,18 @@ Kelp is **sideload-only** today. It can't go through Light's hosted tool builder
 ## Features
 
 - Saved songs, albums, artists, playlists (your whole collection, paginated)
-- Home mixes (daily / discovery / new-release) + recently played
-- Full catalog search with per-section paging
+- Home mixes (daily / discovery / new-release) with artist subtext
+- Full catalog search preserving TIDAL relevance order, with complete results and per-section paging
 - Queue with shuffle, repeat, seek, and "keep playing similar songs" continuous playback
+- Foreground-service playback outside Kelp, with track metadata and system play/pause/previous/next controls
+- Full-width navigation and transport touch targets, with Now Playing accessible from the top-left waveform
 - LOSSLESS streaming by default (falls back to lower quality if needed)
 - SDK-owned background playback, track transitions, and system media controls
 - Follows LightOS theming and hardware-button navigation
+
+Loading audio is distinct from playing; preparation failures remain visible in Now Playing. Returning from playback keeps loaded browse results. Settings exposes continuous playback and sign-out, with read-only information about the actual streaming policy. Nonfunctional quality, normalization, explicit-filter, and offline controls are not presented as working features.
+
+Background playback is not persistent playback recovery: force-stop, reboot, or process loss clears the in-memory queue. Leaving Kelp does not stop an active session; signing out does.
 
 ## Build it yourself
 
@@ -60,6 +66,8 @@ scripts/build-release.sh
 ```
 
 You'll also want your own TIDAL developer credentials in `local.properties` (see `local.properties.example`) if you're hacking rather than installing releases.
+
+Local builds default to one worker, two JVM-visible processors, a 1.5 GiB heap, and in-process Kotlin compilation, following Lightious's low-resource build setup. The playback migration was built against adjacent SDK `52fbc5a8aedbd3c4c88037580709e53540086229`; existing local SDK changes were preserved.
 
 CI runs tests + assemble on every push; pushing a matching `v*` tag publishes a signed release automatically.
 

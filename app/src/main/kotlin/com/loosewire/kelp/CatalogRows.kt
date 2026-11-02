@@ -34,7 +34,6 @@ internal fun ArtistRow(artist: ArtistSummary, onClick: () -> Unit) {
     CatalogRow(
         title = artist.name,
         detail = "Artist",
-        titleVariant = LightTextVariant.Subheading,
         onClick = onClick,
     )
 }
@@ -67,7 +66,8 @@ internal fun PlaylistRow(
     val count = if (playlist.itemCount == 1) "1 song" else "${playlist.itemCount} songs"
     CatalogRow(
         title = playlist.name,
-        detail = count.takeIf { showSongCount },
+        detail = if (showSongCount) count else playlist.description?.takeIf(String::isNotBlank),
+        detailMaxLines = if (showSongCount) 1 else 2,
         onClick = onClick,
     )
 }
@@ -76,7 +76,7 @@ internal fun PlaylistRow(
 private fun CatalogRow(
     title: String,
     detail: String?,
-    titleVariant: LightTextVariant = LightTextVariant.Heading,
+    detailMaxLines: Int = 1,
     onClick: (() -> Unit)?,
 ) {
     val rowModifier = Modifier
@@ -93,7 +93,7 @@ private fun CatalogRow(
     Column(modifier = rowModifier) {
         LightText(
             text = title,
-            variant = titleVariant,
+            variant = LightTextVariant.Subheading,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -102,7 +102,7 @@ private fun CatalogRow(
                 text = it,
                 variant = LightTextVariant.Fine,
                 lighten = true,
-                maxLines = 1,
+                maxLines = detailMaxLines,
                 overflow = TextOverflow.Ellipsis,
             )
         }

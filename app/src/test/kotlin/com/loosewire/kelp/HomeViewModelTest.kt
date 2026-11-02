@@ -12,6 +12,10 @@ import com.loosewire.kelp.protocol.ReleaseType
 import com.loosewire.kelp.protocol.SearchResults
 import com.loosewire.kelp.protocol.ServerActivity
 import com.loosewire.kelp.protocol.TrackSummary
+import com.loosewire.kelp.protocol.SearchSection
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -24,6 +28,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
@@ -99,6 +104,78 @@ class HomeViewModelTest {
 
         assertEquals(0, client.artistCalls)
         assertEquals(0, client.albumCalls)
+    }
+
+    @Test
+    fun switchingTabsDuringPaginationPreservesAlbumsAndAllowsRetry() = runTest(dispatcher) {
+        val pending = CompletableDeferred<KelpClientResult<Page<ReleaseSummary>>>()
+        var moreCalls = 0
+        val client = object : KelpClient by HomeFakeTideClient(AuthSnapshot(AuthState.Authenticated)) {
+            override suspend fun collection(cursor: String?): KelpClientResult<Page<ReleaseSummary>> =
+                if (cursor == null) {
+                    KelpClientResult.Success(Page(listOf(release("saved")), "next"))
+                } else if (++moreCalls == 1) {
+                    withContext(NonCancellable) { pending.await() }
+                } else {
+                    KelpClientResult.Success(Page(listOf(release("next")), null))
+                }
+        }
+        val viewModel = HomeViewModel(client)
+        viewModel.refreshAuth()
+        runCurrent()
+        viewModel.selectTab(KelpTab.Albums)
+        runCurrent()
+        viewModel.loadMoreSelectedTab()
+        runCurrent()
+        assertTrue(viewModel.state.value.albums.loadingMore)
+
+        viewModel.selectTab(KelpTab.Home)
+        viewModel.selectTab(KelpTab.Albums)
+        assertFalse(viewModel.state.value.albums.loadingMore)
+        assertEquals(listOf("saved"), viewModel.state.value.albums.items.map { it.id })
+        viewModel.loadMoreSelectedTab()
+        runCurrent()
+        pending.complete(KelpClientResult.Success(Page(listOf(release("stale")), null)))
+        runCurrent()
+
+        assertEquals(listOf("saved", "next"), viewModel.state.value.albums.items.map { it.id })
+        assertFalse(viewModel.state.value.albums.loadingMore)
+        assertEquals(2, moreCalls)
+    }
+
+    @Test
+    fun staleSearchPageCannotReplaceRefreshedResults() = runTest(dispatcher) {
+        val pending = CompletableDeferred<KelpClientResult<SearchResults>>()
+        var calls = 0
+        val client = object : KelpClient by HomeFakeTideClient(AuthSnapshot(AuthState.Authenticated)) {
+            override suspend fun searchPage(
+                query: String,
+                section: SearchSection,
+                cursor: String?,
+            ): KelpClientResult<SearchResults> = when (++calls) {
+                1 -> KelpClientResult.Success(
+                    SearchResults(emptyList(), listOf(release("old")), emptyList(), nextCursor = "next"),
+                )
+                2 -> withContext(NonCancellable) { pending.await() }
+                else -> KelpClientResult.Success(
+                    SearchResults(emptyList(), listOf(release("fresh")), emptyList()),
+                )
+            }
+        }
+        val viewModel = SearchResultsViewModel("Artist", SearchSection.Albums, client)
+        viewModel.loadFirstPage()
+        runCurrent()
+        viewModel.loadMore()
+        runCurrent()
+        viewModel.loadFirstPage()
+        runCurrent()
+        pending.complete(
+            KelpClientResult.Success(SearchResults(emptyList(), listOf(release("stale")), emptyList())),
+        )
+        runCurrent()
+
+        assertEquals(listOf("fresh"), viewModel.state.value.results.releases.map { it.id })
+        assertFalse(viewModel.state.value.loadingMore)
     }
 
     private fun release(id: String) = ReleaseSummary(
